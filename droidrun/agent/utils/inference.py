@@ -19,7 +19,7 @@ async def acall_with_retries(
     llm,
     messages: list,
     retries: int = 3,
-    timeout: float = 60,
+    timeout: float = 180,
     delay: float = 1.0,
     stream: bool = False,
 ) -> ChatResponse:
@@ -119,7 +119,7 @@ async def acomplete_with_retries(
     llm,
     prompt: str,
     retries: int = 3,
-    timeout: float = 60,
+    timeout: float = 180,
     delay: float = 1.0,
     stream: bool = False,
 ) -> CompletionResponse:
@@ -218,7 +218,7 @@ async def astructured_predict_with_retries(
     output_cls: Type[T],
     prompt: PromptTemplate,
     retries: int = 3,
-    timeout: float = 60,
+    timeout: float = 180,
     delay: float = 1.0,
     **prompt_args,
 ) -> T:
