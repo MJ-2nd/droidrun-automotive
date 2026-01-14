@@ -1,0 +1,45 @@
+agent:
+  max_steps: 15
+  reasoning: true
+  streaming: true
+
+  # Vision 활성화 (reasoning: true 모드)
+  manager:
+    vision: false
+  executor:
+    vision: false
+
+# 공통 Ollama 설정 (앵커로 정의)
+_ollama_base: &ollama_base
+  provider: Ollama
+  model: qwen2.5vl328b
+  base_url: "http://10.112.165.53:11435"
+  kwargs:
+    context_window: 8192
+    request_timeout: 300.0
+    additional_kwargs:
+      num_ctx: 8192
+      num_gpu: 99
+      num_batch: 512
+
+llm_profiles:
+  # reasoning: true 필수 프로필
+  manager:
+    <<: *ollama_base
+
+  executor:
+    <<: *ollama_base
+
+  text_manipulator:
+    <<: *ollama_base
+
+  app_opener:
+    <<: *ollama_base
+
+  # scripter 사용 시 필요
+  scripter:
+    <<: *ollama_base
+
+  # reasoning: false 시 필요 (둘 다 쓰려면 포함)
+  codeact:
+    <<: *ollama_base
