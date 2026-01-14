@@ -12,11 +12,11 @@ agent:
 # 공통 Ollama 설정 (앵커로 정의)
 _ollama_base: &ollama_base
   provider: Ollama
-  model: qwen2.5vl328b
-  base_url: "http://10.112.165.53:11435"
+  model: qwen3-vl:32b
+  base_url: "http://10.112.165.53:11434"
   kwargs:
     context_window: 8192
-    request_timeout: 300.0
+    request_timeout: 60.0
     additional_kwargs:
       num_ctx: 8192
       num_gpu: 99
