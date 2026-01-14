@@ -29,6 +29,9 @@ class UsageResult(BaseModel):
 
 
 def get_usage_from_response(provider: str, chat_rsp: ChatResponse) -> UsageResult:
+    # Normalize provider name (LlamaIndex class_name() returns names like "Ollama_llm")
+    provider = provider.removesuffix("_llm").removesuffix("_LLM")
+
     rsp = chat_rsp.raw
     if not rsp:
         raise ValueError("No raw response in chat response")
@@ -50,7 +53,7 @@ def get_usage_from_response(provider: str, chat_rsp: ChatResponse) -> UsageResul
             total_tokens=usage.total_tokens,
             requests=1,
         )
-    elif provider == "Anthropic_LLM":
+    elif provider == "Anthropic":
         from anthropic.types import Usage as AnthropicUsage
 
         usage: AnthropicUsage = rsp["usage"]

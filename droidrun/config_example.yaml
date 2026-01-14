@@ -143,6 +143,9 @@ device:
   use_tcp: false
   # Platform: android or ios but currently only android is supported
   platform: android
+  # AAOS mode: Use uiautomator dump instead of Accessibility Service
+  # Enable this for Android Automotive OS where Accessibility Service is restricted
+  automotive_mode: false
 
 # === Telemetry Settings ===
 telemetry:

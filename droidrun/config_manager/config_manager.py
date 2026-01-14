@@ -138,6 +138,7 @@ class DeviceConfig:
     serial: Optional[str] = None
     use_tcp: bool = False
     platform: str = "android"  # "android" or "ios"
+    automotive_mode: bool = False  # AAOS mode - uses uiautomator dump instead of Accessibility Service
 
 
 @dataclass

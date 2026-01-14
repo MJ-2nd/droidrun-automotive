@@ -2,12 +2,15 @@
 UI Actions - Core UI interaction tools for Android device control.
 """
 
+import asyncio
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
+from async_adbutils import adb
 from llama_index.core.workflow import Context
+
 from droidrun.agent.common.events import (
     DragActionEvent,
     InputTextActionEvent,
@@ -43,6 +46,7 @@ class AdbTools(Tools):
         tree_formatter: TreeFormatter = None,
         vision_enabled: bool = True,
         streaming: bool = False,
+        automotive_mode: bool = False,
     ) -> None:
         """Initialize the AdbTools instance.
 
@@ -57,11 +61,14 @@ class AdbTools(Tools):
             tree_formatter: Formatter for filtered tree (default: IndexedFormatter)
             vision_enabled: Whether vision is enabled (default: True). Used to select default filter.
             streaming: Whether to stream LLM responses to console (default: False)
+            automotive_mode: AAOS mode - uses uiautomator dump instead of Accessibility Service (default: False)
         """
         self._serial = serial
         self._use_tcp = use_tcp
+        self._automotive_mode = automotive_mode
         self.device = None
         self.portal = None
+        self._automotive_state_provider = None
         self._connected = False
 
         self._ctx = None
@@ -110,7 +117,19 @@ class AdbTools(Tools):
         state = await self.device.get_state()
         if state != "device":
             raise ConnectionError(f"Device is not online. State: {state}")
-        # Initialize portal client
+
+        # AAOS Mode: Skip Portal initialization, use uiautomator dump instead
+        if self._automotive_mode:
+            from droidrun.tools.parsers.uiautomator_parser import (
+                AutomotiveStateProvider,
+            )
+
+            self._automotive_state_provider = AutomotiveStateProvider(self.device)
+            logger.info("AAOS mode enabled: Using uiautomator dump for UI tree")
+            self._connected = True
+            return
+
+        # Standard mode: Initialize portal client
         self.portal = PortalClient(self.device, prefer_tcp=self._use_tcp)
         await self.portal.connect()
 
@@ -536,6 +555,9 @@ class AdbTools(Tools):
         Input text on the device.
         Always make sure that the Focused Element is not None before inputting text.
 
+        Note: In AAOS mode, only ASCII text is supported via ADB shell input.
+        Non-ASCII characters will be handled via broadcast if possible.
+
         Args:
             text: Text to input. Can contain spaces, newlines, and special characters including non-ASCII.
             index: Index of the element to input text into. If -1, the focused element will be used.
@@ -549,8 +571,12 @@ class AdbTools(Tools):
             if index != -1:
                 await self.tap_by_index(index)
 
-            # Use PortalClient for text input (automatic TCP/content provider selection)
-            success = await self.portal.input_text(text, clear)
+            # AAOS Mode: Use ADB shell input commands
+            if self._automotive_mode:
+                success = await self._input_text_automotive(text, clear)
+            else:
+                # Use PortalClient for text input (automatic TCP/content provider selection)
+                success = await self.portal.input_text(text, clear)
 
             if self._ctx:
                 input_event = InputTextActionEvent(
@@ -570,6 +596,85 @@ class AdbTools(Tools):
 
         except Exception as e:
             return f"Error sending text input: {str(e)}"
+
+    async def _input_text_automotive(self, text: str, clear: bool = False) -> bool:
+        """
+        Input text in AAOS mode using ADB shell commands.
+
+        Strategy:
+        1. If clear=True, select all and delete
+        2. For ASCII text: use `adb shell input text`
+        3. For non-ASCII: use broadcast method or fallback
+
+        Args:
+            text: Text to input
+            clear: Whether to clear existing text first
+
+        Returns:
+            True if successful
+        """
+        try:
+            # Clear existing text if requested
+            if clear:
+                # Send Ctrl+A (select all) then Delete
+                await self.device.shell("input keyevent 29")  # KEYCODE_A
+                await self.device.shell("input keyevent 67")  # KEYCODE_DEL
+
+            # Check if text is ASCII-only
+            is_ascii = all(ord(c) < 128 for c in text)
+
+            if is_ascii:
+                # Escape special characters for shell
+                # Replace spaces with %s, escape quotes
+                escaped_text = text.replace("\\", "\\\\").replace('"', '\\"')
+                escaped_text = escaped_text.replace(" ", "%s")
+                await self.device.shell(f'input text "{escaped_text}"')
+            else:
+                # Non-ASCII: Try broadcast method first
+                logger.warning(
+                    "Non-ASCII text input in AAOS mode - attempting broadcast method"
+                )
+                success = await self._input_text_via_broadcast(text)
+                if not success:
+                    # Fallback: Skip non-ASCII characters and warn user
+                    ascii_only = "".join(c if ord(c) < 128 else "" for c in text)
+                    if ascii_only:
+                        escaped = ascii_only.replace(" ", "%s")
+                        await self.device.shell(f'input text "{escaped}"')
+                    logger.warning(
+                        "Non-ASCII characters skipped in AAOS mode (no broadcast receiver)"
+                    )
+
+            return True
+
+        except Exception as e:
+            logger.error(f"AAOS text input failed: {e}")
+            return False
+
+    async def _input_text_via_broadcast(self, text: str) -> bool:
+        """
+        Input text via broadcast intent (for non-ASCII characters).
+
+        Requires ADB Keyboard or similar receiver app on device.
+        """
+        try:
+            import base64
+
+            encoded = base64.b64encode(text.encode("utf-8")).decode("ascii")
+
+            # Try ADB Keyboard broadcast
+            result = await self.device.shell(
+                f'am broadcast -a ADB_INPUT_B64 --es msg "{encoded}"'
+            )
+
+            if "Broadcast completed" in result:
+                return True
+
+            return False
+
+        except Exception as e:
+            logger.debug(f"Broadcast input failed: {e}")
+            return False
 
     @Tools.ui_action
     async def back(self) -> str:
@@ -716,7 +821,11 @@ class AdbTools(Tools):
         try:
             logger.debug("Taking screenshot")
 
-            image_bytes = await self.portal.take_screenshot(hide_overlay)
+            # AAOS Mode: Use ADB screencap directly
+            if self._automotive_mode:
+                image_bytes = await self.device.screenshot_bytes()
+            else:
+                image_bytes = await self.portal.take_screenshot(hide_overlay)
 
             return "PNG", image_bytes
 
@@ -753,7 +862,39 @@ class AdbTools(Tools):
             List of dictionaries containing 'package' and 'label' keys
         """
         await self._ensure_connected()
+
+        # AAOS Mode: Use pm list packages
+        if self._automotive_mode:
+            return await self._get_apps_automotive(include_system)
+
         return await self.portal.get_apps(include_system)
+
+    async def _get_apps_automotive(
+        self, include_system: bool = True
+    ) -> List[Dict[str, str]]:
+        """Get apps list using pm list packages in AAOS mode."""
+        try:
+            if include_system:
+                output = await self.device.shell("pm list packages")
+            else:
+                output = await self.device.shell("pm list packages -3")
+
+            apps = []
+            for line in output.strip().split("\n"):
+                if line.startswith("package:"):
+                    package = line[8:]  # Remove 'package:' prefix
+                    apps.append(
+                        {
+                            "package": package,
+                            "label": package.split(".")[-1],  # Use last part as label
+                        }
+                    )
+
+            return apps
+
+        except Exception as e:
+            logger.error(f"Failed to get apps in AAOS mode: {e}")
+            return []
 
     @Tools.ui_action
     async def complete(self, success: bool, reason: str = ""):
@@ -827,11 +968,15 @@ class AdbTools(Tools):
             try:
                 logger.debug(f"Getting state (attempt {attempt + 1}/{max_retries})")
 
-                combined_data = await self.portal.get_state()
+                # AAOS Mode: Use AutomotiveStateProvider instead of Portal
+                if self._automotive_mode:
+                    combined_data = await self._automotive_state_provider.get_state()
+                else:
+                    combined_data = await self.portal.get_state()
 
                 if "error" in combined_data:
                     raise Exception(
-                        f"Portal returned error: {combined_data.get('message', 'Unknown error')}"
+                        f"State provider returned error: {combined_data.get('message', 'Unknown error')}"
                     )
 
                 required_keys = ["a11y_tree", "phone_state", "device_context"]
@@ -881,11 +1026,31 @@ class AdbTools(Tools):
 
     async def ping(self) -> Dict[str, Any]:
         """
-        Test the Portal connection.
+        Test the connection (Portal or device).
 
         Returns:
             Dictionary with ping result
         """
+        await self._ensure_connected()
+
+        # AAOS Mode: Test device connectivity via ADB shell
+        if self._automotive_mode:
+            try:
+                result = await self.device.shell("echo pong")
+                if "pong" in result:
+                    return {
+                        "status": "success",
+                        "method": "adb_shell",
+                        "mode": "automotive",
+                    }
+                return {
+                    "status": "error",
+                    "method": "adb_shell",
+                    "message": "Unexpected response",
+                }
+            except Exception as e:
+                return {"status": "error", "method": "adb_shell", "message": str(e)}
+
         return await self.portal.ping()
 
 
