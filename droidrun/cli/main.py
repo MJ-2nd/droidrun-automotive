@@ -14,8 +14,13 @@ import click
 import importlib.metadata
 import tomllib
 from pathlib import Path
-from async_adbutils import adb
+from async_adbutils import AdbClient
 from rich.console import Console
+
+
+def _get_adb_client() -> AdbClient:
+    """Get AdbClient instance configured for local ADB server."""
+    return AdbClient(host="127.0.0.1", port=5037)
 from rich.panel import Panel
 from rich.text import Text
 
@@ -251,7 +256,7 @@ async def run_command(
 
             if not ios:
                 try:
-                    device_obj = await adb.device(config.device.serial)
+                    device_obj = await _get_adb_client().device(config.device.serial)
                     if device_obj:
                         portal_version = await get_portal_version(device_obj)
 
@@ -491,7 +496,7 @@ async def run(
         # Note: Port forwards are managed automatically and persist until device disconnect
         try:
             if not (ios if ios is not None else False):
-                device_obj = await adb.device(device)
+                device_obj = await _get_adb_client().device(device)
                 if device_obj:
                     await device_obj.shell(
                         "ime disable com.droidrun.portal/.input.DroidrunKeyboardIME"
@@ -508,7 +513,7 @@ async def run(
 async def devices():
     """List connected Android devices."""
     try:
-        devices = await adb.list()
+        devices = await _get_adb_client().list()
         if not devices:
             console.print("[yellow]No devices connected.[/]")
             return
@@ -526,7 +531,7 @@ async def devices():
 async def connect(serial: str):
     """Connect to a device over TCP/IP."""
     try:
-        device = await adb.connect(serial)
+        device = await _get_adb_client().connect(serial)
         if device.count("already connected"):
             console.print(f"[green]Successfully connected to {serial}[/]")
         else:
@@ -541,7 +546,7 @@ async def connect(serial: str):
 async def disconnect(serial: str):
     """Disconnect from a device."""
     try:
-        success = await adb.disconnect(serial, raise_error=True)
+        success = await _get_adb_client().disconnect(serial, raise_error=True)
         if success:
             console.print(f"[green]Successfully disconnected from {serial}[/]")
         else:
@@ -554,7 +559,7 @@ async def _setup_portal(path: str | None, device: str | None, debug: bool, lates
     """Internal async function to install and enable the DroidRun Portal on a device."""
     try:
         if not device:
-            devices = await adb.list()
+            devices = await _get_adb_client().list()
             if not devices:
                 console.print("[yellow]No devices connected.[/]")
                 return
@@ -562,7 +567,7 @@ async def _setup_portal(path: str | None, device: str | None, debug: bool, lates
             device = devices[0].serial
             console.print(f"[blue]Using device:[/] {device}")
 
-        device_obj = await adb.device(device)
+        device_obj = await _get_adb_client().device(device)
         if not device_obj:
             console.print(
                 f"[bold red]Error:[/] Could not get device object for {device}"
@@ -694,7 +699,7 @@ async def ping(device: str | None, tcp: bool | None, debug: bool | None):
     use_tcp_mode = tcp if tcp is not None else False
 
     try:
-        device_obj = await adb.device(device)
+        device_obj = await _get_adb_client().device(device)
         if not device_obj:
             console.print(f"[bold red]Error:[/] Could not find device {device}")
             return

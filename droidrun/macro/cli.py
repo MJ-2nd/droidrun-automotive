@@ -7,7 +7,7 @@ import logging
 from typing import Optional
 
 import click
-from async_adbutils import adb
+from async_adbutils import AdbClient
 from rich.console import Console
 from rich.table import Table
 
@@ -82,7 +82,8 @@ def replay(
     async def get_device():
         if device is None:
             logger.info("🔍 Finding connected device...")
-            devices = await adb.list()
+            adb_client = AdbClient(host="127.0.0.1", port=5037)
+            devices = await adb_client.list()
             if not devices:
                 raise ValueError("No connected devices found.")
             dev = devices[0].serial

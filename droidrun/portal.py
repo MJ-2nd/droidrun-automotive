@@ -15,7 +15,7 @@ import requests
 from rich.console import Console
 
 from droidrun.tools import AdbTools
-from async_adbutils import AdbDevice, adb
+from async_adbutils import AdbDevice, AdbClient
 
 REPO = "droidrun/droidrun-portal"
 ASSET_NAME = "droidrun-portal"
@@ -373,7 +373,8 @@ async def disable_keyboard(
 
 
 async def test():
-    device = await adb.device()
+    adb_client = AdbClient(host="127.0.0.1", port=5037)
+    device = await adb_client.device()
     await ping_portal(device, debug=False)
 
 

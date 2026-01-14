@@ -8,7 +8,7 @@ import os
 import time
 from typing import Any, Dict, List, Tuple
 
-from async_adbutils import adb
+from async_adbutils import AdbClient
 from llama_index.core.workflow import Context
 
 from droidrun.agent.common.events import (
@@ -22,7 +22,6 @@ from droidrun.agent.common.events import (
 from ..base import Tools
 from ..helpers.geometry import find_clear_point, rects_overlap
 from .portal_client import PortalClient
-from async_adbutils import adb
 import asyncio
 from ..filters import TreeFilter, ConciseFilter, DetailedFilter
 from ..formatters import TreeFormatter, IndexedFormatter
@@ -111,8 +110,9 @@ class AdbTools(Tools):
         if self._connected:
             return
 
-        # Connect to device
-        self.device = await adb.device(serial=self._serial)
+        # Connect to device using explicit AdbClient (required for TCP-connected devices)
+        adb_client = AdbClient(host="127.0.0.1", port=5037)
+        self.device = await adb_client.device(serial=self._serial)
         # Check if device is online
         state = await self.device.get_state()
         if state != "device":
@@ -1074,16 +1074,17 @@ def _shell_test_cli(serial: str, command: str) -> tuple[str, float]:
     return output, elapsed
 
 
-def _shell_test():
-    device = adb.device("emulator-5554")
+async def _shell_test_sync():
+    adb_client = AdbClient(host="127.0.0.1", port=5037)
+    device = await adb_client.device("emulator-5554")
     # Native Python adb client
     start = time.time()
-    res = device.shell("echo 'Hello, World!'")
+    res = await device.shell("echo 'Hello, World!'")
     end = time.time()
     print(f"[Native] Shell execution took {end - start:.3f} seconds: {res}")
 
     start = time.time()
-    res = device.shell("content query --uri content://com.droidrun.portal/state")
+    res = await device.shell("content query --uri content://com.droidrun.portal/state")
     end = time.time()
     print(f"[Native] Shell execution took {end - start:.3f} seconds: phone_state")
 
@@ -1128,7 +1129,8 @@ def _shell_test_cli(serial: str, command: str) -> tuple[str, float]:
 
 
 async def _shell_test():
-    device = await adb.device("emulator-5554")
+    adb_client = AdbClient(host="127.0.0.1", port=5037)
+    device = await adb_client.device("emulator-5554")
     start = time.time()
     res = await device.shell("echo 'Hello, World!'")
     end = time.time()

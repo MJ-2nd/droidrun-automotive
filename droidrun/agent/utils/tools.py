@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from droidrun.config_manager.config_manager import DeviceConfig, ToolsConfig
     from droidrun.tools import Tools
 
-from async_adbutils import adb
+from async_adbutils import AdbClient
 from droidrun.config_manager.config_manager import ToolsConfig
 from droidrun.tools import AdbTools, IOSTools, Tools
 
@@ -37,7 +37,8 @@ async def create_tools_from_config(
     if not is_ios:
         # Android: auto-detect if not specified
         if device_serial is None:
-            devices = await adb.list()
+            adb_client = AdbClient(host="127.0.0.1", port=5037)
+            devices = await adb_client.list()
             if not devices:
                 raise ValueError("No connected Android devices found.")
             device_serial = devices[0].serial
