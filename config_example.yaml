@@ -9,18 +9,22 @@ agent:
   executor:
     vision: false
 
+device:
+  automotive_mode : true
+  platform : android
+
 # 공통 Ollama 설정 (앵커로 정의)
 _ollama_base: &ollama_base
   provider: Ollama
   model: qwen3-vl:32b
   base_url: "http://10.112.165.53:11434"
   kwargs:
-    context_window: 8192
+    context_window: 32768
     request_timeout: 60.0
     additional_kwargs:
-      num_ctx: 8192
+      num_ctx: 32768
       num_gpu: 99
-      num_batch: 512
+      num_batch: 1024
 
 llm_profiles:
   # reasoning: true 필수 프로필
