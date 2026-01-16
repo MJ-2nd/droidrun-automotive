@@ -32,11 +32,12 @@ class AdbService:
             Tuple of (success, message)
         """
         try:
-            # Run adb connect via subprocess
-            proc = await asyncio.create_subprocess_exec(
-                "adb",
-                "connect",
-                ip_port,
+            # Use shell=True with explicit command string for better compatibility
+            cmd = f"adb connect {ip_port}"
+            logger.info(f"Executing: {cmd}")
+
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -45,8 +46,9 @@ class AdbService:
             output = stdout.decode().strip()
             error = stderr.decode().strip()
 
-            if proc.returncode != 0:
-                return False, f"ADB connect failed: {error or output}"
+            logger.info(f"ADB connect stdout: {output}")
+            if error:
+                logger.info(f"ADB connect stderr: {error}")
 
             # Check connection result
             if "connected" in output.lower() or "already" in output.lower():
@@ -56,9 +58,11 @@ class AdbService:
                 return False, f"Connection refused by {ip_port}"
             elif "unable" in output.lower() or "failed" in output.lower():
                 return False, f"Connection failed: {output}"
+            elif proc.returncode != 0:
+                return False, f"ADB connect failed: {error or output}"
             else:
                 # Assume success if no error indicators
-                return True, output
+                return True, output or f"Connected to {ip_port}"
 
         except FileNotFoundError:
             return False, "ADB command not found. Please install Android SDK."
