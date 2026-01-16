@@ -104,12 +104,9 @@ class EventSerializer:
 
         if event_class_name == "ManagerPlanDetailsEvent":
             return {
-                "plan": event.plan,
                 "subgoal": event.subgoal,
                 "thought": event.thought,
                 "answer": event.answer,
-                "memory_update": event.memory_update,
-                "progress_summary": event.progress_summary,
                 "success": event.success,
             }
 
@@ -125,18 +122,15 @@ class EventSerializer:
 
         if event_class_name == "ExecutorActionEvent":
             return {
-                "action_json": event.action_json,
-                "thought": event.thought,
                 "description": event.description,
+                "thought": event.thought,
             }
 
         if event_class_name == "ExecutorActionResultEvent":
             return {
-                "action": event.action,
                 "success": event.success,
-                "error": event.error,
                 "summary": event.summary,
-                "thought": event.thought,
+                "error": event.error,
             }
 
         # CodeAct events
@@ -147,7 +141,6 @@ class EventSerializer:
             return {
                 "thought": event.thought,
                 "code": event.code,
-                "usage": cls._serialize_usage(event.usage) if event.usage else None,
             }
 
         if event_class_name == "CodeActCodeEvent":
@@ -180,57 +173,19 @@ class EventSerializer:
                 ),
             }
 
-        # Macro events
-        if event_class_name == "TapActionEvent":
+        # Macro events - simplified (only action type and description)
+        if event_class_name in (
+            "TapActionEvent",
+            "SwipeActionEvent",
+            "DragActionEvent",
+            "InputTextActionEvent",
+            "KeyPressActionEvent",
+            "StartAppEvent",
+            "WaitEvent",
+        ):
             return {
-                "action_type": event.action_type,
-                "description": event.description,
-                "x": event.x,
-                "y": event.y,
-                "element_index": event.element_index,
-                "element_text": event.element_text,
-                "element_bounds": getattr(event, "element_bounds", ""),
-            }
-
-        if event_class_name in ("SwipeActionEvent", "DragActionEvent"):
-            return {
-                "action_type": event.action_type,
-                "description": event.description,
-                "start_x": event.start_x,
-                "start_y": event.start_y,
-                "end_x": event.end_x,
-                "end_y": event.end_y,
-                "duration_ms": event.duration_ms,
-            }
-
-        if event_class_name == "InputTextActionEvent":
-            return {
-                "action_type": event.action_type,
-                "description": event.description,
-                "text": event.text,
-            }
-
-        if event_class_name == "KeyPressActionEvent":
-            return {
-                "action_type": event.action_type,
-                "description": event.description,
-                "keycode": event.keycode,
-                "key_name": event.key_name,
-            }
-
-        if event_class_name == "StartAppEvent":
-            return {
-                "action_type": event.action_type,
-                "description": event.description,
-                "package": event.package,
-                "activity": event.activity,
-            }
-
-        if event_class_name == "WaitEvent":
-            return {
-                "action_type": event.action_type,
-                "description": event.description,
-                "duration": event.duration,
+                "action_type": getattr(event, "action_type", event_class_name),
+                "description": getattr(event, "description", ""),
             }
 
         # Fallback: try to extract common attributes

@@ -8,7 +8,19 @@ from pathlib import Path
 from typing import Awaitable, Callable
 
 from droidrun import DroidAgent
-from droidrun.agent.common.events import RecordUIStateEvent
+from droidrun.agent.codeact.events import (
+    CodeActCodeEvent,
+    CodeActInputEvent,
+)
+from droidrun.agent.common.events import RecordUIStateEvent, ScreenshotEvent
+from droidrun.agent.executor.events import (
+    ExecutorContextEvent,
+    ExecutorResponseEvent,
+)
+from droidrun.agent.manager.events import (
+    ManagerContextEvent,
+    ManagerResponseEvent,
+)
 from droidrun.config_manager import DroidrunConfig
 
 from .adb_service import AdbService
@@ -126,8 +138,18 @@ class DroidSession:
                     logger.info("Session cancelled, stopping event stream")
                     break
 
-                # Skip UI state events (too large, not needed by client)
-                if isinstance(event, RecordUIStateEvent):
+                # Skip verbose/unnecessary events (terminal-like filtering)
+                # These events are either too large, redundant, or not user-facing
+                if isinstance(event, (
+                    RecordUIStateEvent,      # UI state tree (too large)
+                    ScreenshotEvent,         # Base64 screenshot (too large)
+                    ManagerContextEvent,     # Empty context prep event
+                    ManagerResponseEvent,    # Full LLM response (redundant with plan details)
+                    ExecutorContextEvent,    # Just subgoal (redundant)
+                    ExecutorResponseEvent,   # Full LLM response (redundant with action)
+                    CodeActInputEvent,       # Empty input event
+                    CodeActCodeEvent,        # Code event (redundant with response)
+                )):
                     continue
 
                 try:
