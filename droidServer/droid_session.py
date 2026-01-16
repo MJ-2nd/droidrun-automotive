@@ -17,7 +17,7 @@ from .models import ConnectionRequest, EventType, WebSocketMessage
 logger = logging.getLogger("droidServer")
 
 # Default config file path (relative to project root)
-DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "config_example.yaml"
+DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"  # project root config
 
 
 class DroidSession:
@@ -105,16 +105,22 @@ class DroidSession:
                 },
             )
 
+            logger.info("Creating DroidAgent instance...")
             self._agent = DroidAgent(
                 goal=self.request.query,
                 config=config,
                 timeout=600,  # 10 minutes timeout
             )
+            logger.info("DroidAgent created, starting run...")
 
             handler = self._agent.run()
+            logger.info("DroidAgent.run() handler created, starting event stream...")
 
             # Step 4: Stream events to WebSocket client
+            event_count = 0
             async for event in handler.stream_events():
+                event_count += 1
+                logger.debug(f"Received event #{event_count}: {event.__class__.__name__}")
                 if self._cancelled:
                     logger.info("Session cancelled, stopping event stream")
                     break
