@@ -83,6 +83,11 @@ langfuse = [
 mobilerun = [
     "mobilerun-sdk",
 ]
+server = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "websockets>=14.0",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -92,10 +97,11 @@ build-backend = "hatchling.build"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["droidrun"]
+packages = ["droidrun", "droidServer"]
 
 [project.scripts]
 droidrun = "droidrun.cli.main:cli"
+droidserver = "droidServer.main:main"
 
 [tool.ruff]
 line-length = 100

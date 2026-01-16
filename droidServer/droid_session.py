@@ -1,0 +1,175 @@
+"""DroidAgent session management for WebSocket connections."""
+
+import asyncio
+import logging
+import os
+import time
+from pathlib import Path
+from typing import Awaitable, Callable
+
+from droidrun import DroidAgent
+from droidrun.config_manager import DroidrunConfig
+
+from .adb_service import AdbService
+from .event_serializer import EventSerializer
+from .models import ConnectionRequest, EventType, WebSocketMessage
+
+logger = logging.getLogger("droidServer")
+
+# Default config file path (relative to project root)
+DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "config_example.yaml"
+
+
+class DroidSession:
+    """Manages a single DroidAgent session for a WebSocket client."""
+
+    def __init__(
+        self,
+        request: ConnectionRequest,
+        send_callback: Callable[[WebSocketMessage], Awaitable[None]],
+        config_path: str | None = None,
+    ):
+        """Initialize a DroidAgent session.
+
+        Args:
+            request: The connection request with ip_port, is_automotive, query
+            send_callback: Async callback to send messages to WebSocket client
+            config_path: Path to config YAML file (default: config_example.yaml)
+        """
+        self.request = request
+        self.send_callback = send_callback
+        self.config_path = config_path or str(DEFAULT_CONFIG_PATH)
+        self.adb_service = AdbService()
+        self._cancelled = False
+        self._agent = None
+
+    async def run(self):
+        """Execute the DroidAgent session.
+
+        Flow:
+        1. Connect to device via ADB
+        2. Load and configure DroidrunConfig
+        3. Create and run DroidAgent
+        4. Stream events to WebSocket client
+        5. Send final result
+        """
+        try:
+            # Step 1: Connect to device via ADB
+            await self._send_event(
+                EventType.CONNECTION_STATUS,
+                {"status": "connecting", "ip_port": self.request.ip_port},
+            )
+
+            success, message = await self.adb_service.connect(self.request.ip_port)
+            if not success:
+                await self._send_event(EventType.ADB_ERROR, {"error": message})
+                return
+
+            await self._send_event(EventType.ADB_CONNECTED, {"message": message})
+
+            # Verify device is accessible
+            if not await self.adb_service.verify_device(self.request.ip_port):
+                await self._send_event(
+                    EventType.ADB_ERROR,
+                    {"error": f"Device {self.request.ip_port} not accessible after connect"},
+                )
+                return
+
+            # Step 2: Load and configure DroidrunConfig
+            if not os.path.exists(self.config_path):
+                await self._send_event(
+                    EventType.AGENT_ERROR,
+                    {"error": f"Config file not found: {self.config_path}"},
+                )
+                return
+
+            config = DroidrunConfig.from_yaml(self.config_path)
+
+            # Override device settings from request
+            config.device.serial = self.request.ip_port
+            config.device.automotive_mode = self.request.is_automotive
+
+            logger.info(
+                f"Starting DroidAgent with serial={config.device.serial}, "
+                f"automotive_mode={config.device.automotive_mode}"
+            )
+
+            # Step 3: Create and run DroidAgent
+            await self._send_event(
+                EventType.AGENT_STARTED,
+                {
+                    "goal": self.request.query,
+                    "serial": self.request.ip_port,
+                    "automotive_mode": self.request.is_automotive,
+                    "reasoning": config.agent.reasoning,
+                },
+            )
+
+            self._agent = DroidAgent(
+                goal=self.request.query,
+                config=config,
+                timeout=600,  # 10 minutes timeout
+            )
+
+            handler = self._agent.run()
+
+            # Step 4: Stream events to WebSocket client
+            async for event in handler.stream_events():
+                if self._cancelled:
+                    logger.info("Session cancelled, stopping event stream")
+                    break
+
+                try:
+                    ws_message = EventSerializer.serialize(event)
+                    await self.send_callback(ws_message)
+                except Exception as e:
+                    logger.warning(f"Failed to serialize event {event.__class__.__name__}: {e}")
+
+            # Step 5: Get final result
+            if not self._cancelled:
+                result = await handler
+
+                await self._send_event(
+                    EventType.AGENT_COMPLETED,
+                    {
+                        "success": result.success,
+                        "reason": result.reason,
+                        "steps": result.steps,
+                        "structured_output": (
+                            result.structured_output.model_dump()
+                            if result.structured_output
+                            else None
+                        ),
+                    },
+                )
+
+        except asyncio.CancelledError:
+            logger.info("Session task cancelled")
+            await self._send_event(EventType.AGENT_ERROR, {"error": "Session cancelled by client"})
+            raise
+
+        except Exception as e:
+            logger.exception("DroidSession error")
+            await self._send_event(EventType.AGENT_ERROR, {"error": str(e)})
+
+    async def cancel(self):
+        """Cancel the running session."""
+        self._cancelled = True
+        logger.info("Session cancellation requested")
+
+    async def _send_event(self, event_type: EventType, data: dict):
+        """Helper to create and send a WebSocketMessage.
+
+        Args:
+            event_type: The type of event
+            data: Event data dictionary
+        """
+        message = WebSocketMessage(
+            event_type=event_type,
+            timestamp=time.time(),
+            data=data,
+        )
+        try:
+            await self.send_callback(message)
+        except Exception as e:
+            logger.warning(f"Failed to send event {event_type}: {e}")
