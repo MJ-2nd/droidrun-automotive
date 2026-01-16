@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Awaitable, Callable
 
 from droidrun import DroidAgent
+from droidrun.agent.common.events import RecordUIStateEvent
 from droidrun.config_manager import DroidrunConfig
 
 from .adb_service import AdbService
@@ -124,6 +125,10 @@ class DroidSession:
                 if self._cancelled:
                     logger.info("Session cancelled, stopping event stream")
                     break
+
+                # Skip UI state events (too large, not needed by client)
+                if isinstance(event, RecordUIStateEvent):
+                    continue
 
                 try:
                     ws_message = EventSerializer.serialize(event)
