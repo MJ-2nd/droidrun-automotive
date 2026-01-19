@@ -88,7 +88,29 @@ class DroidSession:
                 )
                 return
 
-            # Step 2: Load and configure DroidrunConfig
+            # Step 2: Ensure Portal is installed (skip for automotive mode)
+            if not self.request.is_automotive:
+                await self._send_event(
+                    EventType.CONNECTION_STATUS,
+                    {"status": "checking_portal", "message": "Checking Portal installation..."},
+                )
+
+                portal_ok, portal_msg = await self.adb_service.ensure_portal_installed(
+                    self.request.ip_port
+                )
+                if not portal_ok:
+                    await self._send_event(
+                        EventType.AGENT_ERROR,
+                        {"error": f"Portal setup failed: {portal_msg}"},
+                    )
+                    return
+
+                await self._send_event(
+                    EventType.CONNECTION_STATUS,
+                    {"status": "portal_ready", "message": portal_msg},
+                )
+
+            # Step 3: Load and configure DroidrunConfig
             if not os.path.exists(self.config_path):
                 await self._send_event(
                     EventType.AGENT_ERROR,
@@ -107,7 +129,7 @@ class DroidSession:
                 f"automotive_mode={config.device.automotive_mode}"
             )
 
-            # Step 3: Create and run DroidAgent
+            # Step 4: Create and run DroidAgent
             await self._send_event(
                 EventType.AGENT_STARTED,
                 {
@@ -129,7 +151,7 @@ class DroidSession:
             handler = self._agent.run()
             logger.info("DroidAgent.run() handler created, starting event stream...")
 
-            # Step 4: Stream events to WebSocket client
+            # Step 5: Stream events to WebSocket client
             event_count = 0
             async for event in handler.stream_events():
                 event_count += 1
@@ -158,7 +180,7 @@ class DroidSession:
                 except Exception as e:
                     logger.warning(f"Failed to serialize event {event.__class__.__name__}: {e}")
 
-            # Step 5: Get final result
+            # Step 6: Get final result
             if not self._cancelled:
                 result = await handler
 

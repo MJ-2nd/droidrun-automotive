@@ -5,6 +5,14 @@ import logging
 
 from async_adbutils import AdbClient
 
+from droidrun.portal import (
+    PORTAL_PACKAGE_NAME,
+    check_portal_accessibility,
+    download_portal_apk,
+    enable_portal_accessibility,
+    setup_keyboard,
+)
+
 logger = logging.getLogger("droidServer")
 
 
@@ -110,3 +118,64 @@ class AdbService:
             return True, output or f"Disconnected from {ip_port}"
         except Exception as e:
             return False, f"Disconnect error: {str(e)}"
+
+    async def ensure_portal_installed(self, serial: str) -> tuple[bool, str]:
+        """Ensure DroidRun Portal is installed and accessibility service is enabled.
+
+        This method checks if Portal is installed, installs it if missing,
+        and ensures the accessibility service is enabled.
+
+        Args:
+            serial: Device serial number or IP:PORT address
+
+        Returns:
+            Tuple of (success, message)
+        """
+        try:
+            device = await self.client.device(serial)
+
+            # Check if Portal is installed
+            packages = await device.list_packages()
+            portal_installed = PORTAL_PACKAGE_NAME in packages
+
+            if not portal_installed:
+                logger.info(f"Portal not installed on {serial}, installing...")
+
+                # Download and install Portal APK
+                with download_portal_apk(debug=False) as apk_path:
+                    logger.info(f"Installing Portal from {apk_path}")
+                    await device.install(
+                        apk_path,
+                        nolaunch=True,
+                        uninstall=False,
+                        flags=["-g"],  # Grant all permissions
+                        silent=True,
+                    )
+                logger.info("Portal installed successfully")
+            else:
+                logger.info(f"Portal already installed on {serial}")
+
+            # Check and enable accessibility service
+            if not await check_portal_accessibility(device, debug=False):
+                logger.info("Enabling Portal accessibility service...")
+                await enable_portal_accessibility(device)
+
+                # Wait a bit for accessibility service to start
+                await asyncio.sleep(1.0)
+
+                # Verify accessibility is enabled
+                if not await check_portal_accessibility(device, debug=False):
+                    return False, (
+                        "Portal installed but accessibility service not enabled. "
+                        "Please enable it manually in Settings > Accessibility > DroidRun Portal"
+                    )
+
+            # Setup keyboard
+            logger.info("Setting up DroidRun keyboard...")
+            await setup_keyboard(device)
+
+            return True, "Portal is ready"
+
+        except Exception as e:
+            logger.exception("Failed to ensure Portal is installed")
+            return False, f"Portal setup failed: {str(e)}"
