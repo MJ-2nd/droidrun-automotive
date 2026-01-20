@@ -2,7 +2,8 @@
 
 from droidrun.tools.parsers.uiautomator_parser import (
     AutomotiveStateProvider,
+    DumpsysParser,
     UIAutomatorParser,
 )
 
-__all__ = ["UIAutomatorParser", "AutomotiveStateProvider"]
+__all__ = ["UIAutomatorParser", "DumpsysParser", "AutomotiveStateProvider"]
