@@ -144,7 +144,7 @@ class DroidSession:
             self._agent = DroidAgent(
                 goal=self.request.query,
                 config=config,
-                timeout=600,  # 10 minutes timeout
+                timeout=1200,  # 10 minutes timeout
             )
             logger.info("DroidAgent created, starting run...")
 
